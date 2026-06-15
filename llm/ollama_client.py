@@ -72,9 +72,10 @@ Respond with exactly this JSON structure:
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
+                "format": "json",
                 "options": {"temperature": 0.1, "num_predict": 400}
             },
-            timeout=60
+            timeout=120
         )
         if response.status_code == 200:
             result_text = response.json().get('response', '')
