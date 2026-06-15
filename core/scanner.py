@@ -26,7 +26,7 @@ def scan_document(text: str, keywords_list: list) -> list:
         if count > 0:
             contexts = []
             for i, match in enumerate(matches):
-                if i >= 5:
+                if i >= 50:
                     break
                 
                 start_idx = max(0, match.start() - 60)

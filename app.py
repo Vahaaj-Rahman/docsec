@@ -371,7 +371,7 @@ with tab1:
                       unsafe_allow_html=True
                     )
                     
-                    for context in kw_result['contexts'][:3]:
+                    for context in kw_result['contexts']:
                         display = context.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
                         st.markdown(
                           f'<div class="context-snippet">{display}</div>',
