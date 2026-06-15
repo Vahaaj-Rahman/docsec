@@ -31,7 +31,7 @@ def run_tfidf(texts_dict: dict) -> dict:
         
     results = {}
     for i, filename in enumerate(filenames):
-        doc_vector = tfidf_matrix[i]
+        doc_vector = tfidf_matrix[i].tocoo()
         tuples = zip(doc_vector.col, doc_vector.data)
         sorted_items = sorted(tuples, key=lambda x: (x[1], x[0]), reverse=True)[:15]
         
