@@ -8,7 +8,6 @@ from core.tfidf_engine import run_tfidf, get_document_topic, get_risk_score
 from db.db_manager import init_db, get_all_keywords, add_keyword, delete_keyword, search_keywords
 from llm.ollama_client import check_ollama_available, list_available_models, analyze_document
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="DocScan — Secure Document Analyzer",
     page_icon="🔍",
@@ -16,7 +15,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -78,29 +76,31 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .meta-row { display:flex; gap:0.5rem; margin:0.2rem 0; font-size:0.82rem; }
 .meta-key { color:#8b949e; min-width:130px; font-weight:500; }
 .meta-val { color:#c9d1d9; }
-.section-divider { border:none; border-top:1px solid #21262d; margin:1rem 0; }
 #MainMenu {visibility:hidden;} footer {visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# ── Init ───────────────────────────────────────────────────────────────────────
 init_db()
 
-DEFAULTS = ['scan_results','extracted_texts','tfidf_results','llm_analyses',
-            'uploaded_file_names','doc_metadata']
-for key in DEFAULTS:
+for key in ['scan_results','extracted_texts','tfidf_results','llm_analyses','doc_metadata']:
     if key not in st.session_state:
-        st.session_state[key] = {} if key != 'uploaded_file_names' else []
+        st.session_state[key] = {}
+if 'uploaded_file_names' not in st.session_state:
+    st.session_state.uploaded_file_names = []
 
 SUPPORTED_TYPES = ['pdf','docx','xlsx','pptx']
+CAT_COLORS = {
+    'identity':'#f97171','financial':'#5acd5a','credential':'#c084fc',
+    'classification':'#60a5fa','personal':'#fbbf24','health':'#2dd4bf',
+    'technical':'#818cf8','general':'#9ca3af'
+}
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
+# Sidebar
 with st.sidebar:
     st.markdown("<h1 style='margin-bottom:0'>🔍 DocScan</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#8b949e;margin-top:0'>Secure Document Analyzer</p>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # AI backend status
     st.markdown("### 🤖 AI Backend")
     ollama_ok = check_ollama_available()
     if ollama_ok:
@@ -113,11 +113,9 @@ with st.sidebar:
             st.warning("No models found. Run: `ollama pull llama3.2`")
     else:
         st.markdown("<div class='ollama-offline'>● Ollama offline</div>", unsafe_allow_html=True)
-        st.info("AI Insights tab disabled.\nTo enable: install Ollama and run `ollama serve`")
+        st.info("AI Insights disabled.\nInstall Ollama and run `ollama serve` to enable.")
 
     st.markdown("---")
-
-    # Keyword database
     st.markdown("### 🗂 Keyword Database")
     all_kws = get_all_keywords()
     st.markdown(
@@ -148,8 +146,7 @@ with st.sidebar:
         new_kw  = st.text_input("Keyword / phrase", placeholder="e.g. bank account")
         new_cat = st.selectbox("Category",
             ['general','identity','financial','credential','classification','personal','health','technical'])
-        new_wt  = st.slider("Risk weight", 0.5, 5.0, 1.5, 0.5,
-            help="Higher = more sensitive. Used in risk score calculation.")
+        new_wt  = st.slider("Risk weight", 0.5, 5.0, 1.5, 0.5)
         if st.button("Add Keyword", key="add_kw_btn"):
             if new_kw.strip():
                 ok = add_keyword(new_kw.strip().lower(), new_cat, new_wt)
@@ -158,12 +155,9 @@ with st.sidebar:
             else:
                 st.warning("Please enter a keyword.")
 
-# ── Tabs ────────────────────────────────────────────────────────────────────────
 tab_scan, tab_analysis, tab_ai = st.tabs(["📄 Scan Documents", "📊 Analysis", "🤖 AI Insights"])
 
-# =============================================================================
 # TAB 1 — SCAN
-# =============================================================================
 with tab_scan:
     st.header("Upload & Scan Documents")
     st.caption("Supports: PDF · DOCX · XLSX · PPTX")
@@ -184,23 +178,25 @@ with tab_scan:
         for f in uploaded_files:
             st.write(f"- {f.name} ({f.size/1024:.1f} KB)")
 
-        # Controls row
-        col_scan, col_pii, col_ner, col_ai_chk = st.columns([2, 1, 1, 1.5])
+        col_scan, col_pii, col_ner, col_fuzzy, col_ai_chk = st.columns([2.5, 1, 1, 1.2, 1.5])
         with col_scan:
             scan_btn = st.button("🔍 Scan All Documents", use_container_width=True)
         with col_pii:
-            do_pii = st.checkbox("Auto PII", value=True, help="Detect emails, phone, Aadhaar, PAN, etc.")
+            do_pii = st.checkbox("Auto PII", value=True, help="Detect emails, phone numbers, Aadhaar, PAN, etc.")
         with col_ner:
-            do_ner = st.checkbox("Auto NER", value=True, help="Detect roles, org names, etc.")
+            do_ner = st.checkbox("Auto NER", value=True, help="Detect organisation names, designations, etc.")
+        with col_fuzzy:
+            do_fuzzy = st.checkbox("Fuzzy Match", value=False,
+                help="Allow 1-character typo tolerance per keyword (e.g. 'doundation model' → 'foundation model'). Disable for precise matching.")
         with col_ai_chk:
             run_ai = False
             if ollama_ok:
                 run_ai = st.checkbox("Run AI Analysis", value=False,
-                    help="Requires Ollama running locally")
+                    help="Uses Ollama to analyse detected keyword contexts. Only matched snippets are sent — not the full document.")
 
         if scan_btn:
             keywords = get_all_keywords()
-            prog = st.progress(0)
+            prog   = st.progress(0)
             status = st.empty()
             n = len(uploaded_files)
 
@@ -217,7 +213,9 @@ with tab_scan:
                 status.text(f"Scanning: {file.name}…")
                 kw_results = scan_document(
                     extraction['text'], keywords,
-                    include_pii=do_pii, include_ner=do_ner)
+                    include_pii=do_pii,
+                    include_ner=do_ner,
+                    fuzzy_mode=do_fuzzy)
 
                 st.session_state.extracted_texts[file.name] = extraction['text']
                 st.session_state.doc_metadata[file.name]    = extraction.get('metadata', {})
@@ -230,14 +228,14 @@ with tab_scan:
                 }
                 prog.progress((i + 1) / n)
 
-            status.text("Running TF-IDF…")
+            status.text("Running TF-IDF analysis…")
             st.session_state.tfidf_results = run_tfidf(st.session_state.extracted_texts)
 
             if run_ai and ollama_ok:
                 for fname in st.session_state.extracted_texts:
-                    status.text(f"AI: {fname}…")
+                    status.text(f"AI analysing: {fname}…")
                     analysis = analyze_document(
-                        text_excerpt=st.session_state.extracted_texts[fname][:2000],
+                        text_excerpt=st.session_state.extracted_texts[fname],
                         keyword_hits=st.session_state.scan_results[fname]['keywords'],
                         tfidf_terms=st.session_state.tfidf_results.get(fname, []),
                         model=st.session_state.get('ollama_model', 'llama3.2')
@@ -248,37 +246,50 @@ with tab_scan:
             prog.progress(1.0)
             st.rerun()
 
-    # ── Results ──────────────────────────────────────────────────────────────
+    # Results
     if st.session_state.scan_results:
         st.subheader(f"Results — {len(st.session_state.scan_results)} document(s)")
 
-        CAT_COLORS = {
-            'identity':'#f97171','financial':'#5acd5a','credential':'#c084fc',
-            'classification':'#60a5fa','personal':'#fbbf24','health':'#2dd4bf',
-            'technical':'#818cf8','general':'#9ca3af'
-        }
+        def render_hits(hits):
+            for kw_r in sorted(hits, key=lambda x: x['count'], reverse=True):
+                cat = kw_r['category']
+                st.markdown(
+                    f"**{kw_r['keyword']}** "
+                    f"<span class='badge badge-{cat}'>{cat}</span> — "
+                    f"**{kw_r['count']}** occurrence(s) | weight: {kw_r['weight']}",
+                    unsafe_allow_html=True)
+                for ctx in kw_r['contexts'][:3]:
+                    disp = ctx.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
+                    st.markdown(f'<div class="context-snippet">{disp}</div>', unsafe_allow_html=True)
+                if len(kw_r['contexts']) > 3:
+                    with st.expander(f"View all {kw_r['count']} occurrences"):
+                        for ctx in kw_r['contexts'][3:]:
+                            disp = ctx.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
+                            st.markdown(f'<div class="context-snippet">{disp}</div>', unsafe_allow_html=True)
+                st.markdown("")
 
         for fname, result in st.session_state.scan_results.items():
             with st.expander(f"📄 {fname}", expanded=True):
-                kw_hits   = result['keywords']
+                kw_hits    = result['keywords']
                 total_hits = sum(k['count'] for k in kw_hits)
                 unique_kw  = len(kw_hits)
-                risk_score, risk_label = get_risk_score(kw_hits)
+                rs, rl     = get_risk_score(kw_hits)
 
-                # ── Metrics row
+                ai_analysis = st.session_state.llm_analyses.get(fname)
+                display_risk = ai_analysis.get('risk_level', rl) if ai_analysis else rl
+
                 mc = st.columns(5)
                 mc[0].markdown(f'<div class="metric-card"><div class="value">{total_hits}</div><div class="label">Total Hits</div></div>', unsafe_allow_html=True)
                 mc[1].markdown(f'<div class="metric-card"><div class="value">{unique_kw}</div><div class="label">Signals</div></div>', unsafe_allow_html=True)
                 mc[2].markdown(f'<div class="metric-card"><div class="value">{result["page_count"]}</div><div class="label">Pages</div></div>', unsafe_allow_html=True)
                 mc[3].markdown(f'<div class="metric-card"><div class="value">{result["word_count"]}</div><div class="label">Words</div></div>', unsafe_allow_html=True)
                 mc[4].markdown(
-                    f'<div class="metric-card"><div class="value risk-{risk_label}">'
-                    f'{risk_label}</div><div class="label">Risk Level</div></div>',
+                    f'<div class="metric-card"><div class="value risk-{display_risk}">{display_risk}</div>'
+                    f'<div class="label">{"AI Risk" if ai_analysis else "Risk Level"}</div></div>',
                     unsafe_allow_html=True)
 
                 st.markdown("")
 
-                # ── Document Metadata
                 meta = st.session_state.doc_metadata.get(fname, {})
                 if meta and any(v for v in meta.values()):
                     with st.expander("📋 Document Metadata"):
@@ -290,7 +301,6 @@ with tab_scan:
                                     f'<span class="meta-val">{v}</span></div>',
                                     unsafe_allow_html=True)
 
-                # ── TF-IDF topic signals
                 tfidf_data = st.session_state.tfidf_results.get(fname, [])
                 if tfidf_data:
                     topic = get_document_topic(
@@ -302,23 +312,26 @@ with tab_scan:
                         for t in tfidf_data[:10]])
                     st.markdown("**TF-IDF topic signals:**")
                     st.markdown(pills, unsafe_allow_html=True)
+                    st.markdown("")
 
-                # ── AI inline summary (if run)
-                if fname in st.session_state.llm_analyses:
-                    analysis = st.session_state.llm_analyses[fname]
-                    ai_risk  = analysis.get('risk_level', 'UNKNOWN')
+                if ai_analysis:
                     st.markdown("---")
                     st.markdown("**🤖 AI Security Summary**")
                     a1, a2 = st.columns([4, 1])
-                    a1.markdown(f"*{analysis.get('summary', '')}*")
+                    a1.markdown(f"*{ai_analysis.get('summary', '')}*")
+                    ai_risk = ai_analysis.get('risk_level', 'UNKNOWN')
                     a2.markdown(
                         f'<div class="metric-card"><div class="risk-{ai_risk}" style="font-size:1.2rem">'
                         f'{ai_risk}</div><div class="label">AI Risk</div></div>',
                         unsafe_allow_html=True)
-                    st.markdown(f"**Primary risk:** {analysis.get('primary_risk','')}")
-                    st.markdown(f"**Recommendation:** {analysis.get('recommendation','')}")
+                    st.markdown(f"**Document type:** {ai_analysis.get('document_type','')}")
+                    st.markdown(f"**Primary risk:** {ai_analysis.get('primary_risk','')}")
+                    st.markdown(f"**Recommendation:** {ai_analysis.get('recommendation','')}")
+                    dtypes = ai_analysis.get('sensitive_data_types', [])
+                    if dtypes:
+                        st.markdown(' '.join([f'<span class="badge badge-general">{t}</span>' for t in dtypes]), unsafe_allow_html=True)
+                    st.markdown("")
 
-                # ── Bar chart
                 if kw_hits:
                     top12 = sorted(kw_hits, key=lambda x: x['count'], reverse=True)[:12]
                     fig = go.Figure(go.Bar(
@@ -332,37 +345,17 @@ with tab_scan:
                     ))
                     fig.update_layout(
                         paper_bgcolor='#161b22', plot_bgcolor='#161b22',
-                        font_color='#c9d1d9',
-                        height=max(250, len(top12) * 34),
+                        font_color='#c9d1d9', height=max(250, len(top12) * 34),
                         margin=dict(l=20, r=60, t=10, b=10),
                         xaxis=dict(showgrid=False, color='#8b949e'),
                         yaxis=dict(showgrid=False, color='#c9d1d9', autorange='reversed'),
                         showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
 
-                # ── Keyword detail cards
                 st.markdown("**Keyword & Signal Matches:**")
                 pii_hits = [k for k in kw_hits if k.get('is_pii')]
                 ner_hits = [k for k in kw_hits if k.get('is_ner')]
                 kw_user  = [k for k in kw_hits if not k.get('is_pii') and not k.get('is_ner')]
-
-                def render_hits(hits):
-                    for kw_r in sorted(hits, key=lambda x: x['count'], reverse=True):
-                        cat = kw_r['category']
-                        st.markdown(
-                            f"**{kw_r['keyword']}** "
-                            f"<span class='badge badge-{cat}'>{cat}</span> — "
-                            f"**{kw_r['count']}** occurrence(s) | weight: {kw_r['weight']}",
-                            unsafe_allow_html=True)
-                        for ctx in kw_r['contexts'][:3]:
-                            disp = ctx.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
-                            st.markdown(f'<div class="context-snippet">{disp}</div>', unsafe_allow_html=True)
-                        if len(kw_r['contexts']) > 3:
-                            with st.expander(f"▼ View all {kw_r['count']} occurrences"):
-                                for ctx in kw_r['contexts'][3:]:
-                                    disp = ctx.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
-                                    st.markdown(f'<div class="context-snippet">{disp}</div>', unsafe_allow_html=True)
-                        st.markdown("")
 
                 if pii_hits:
                     st.markdown("##### 🔴 Auto-Detected PII")
@@ -374,40 +367,43 @@ with tab_scan:
                     st.markdown("##### 🔵 User-Defined Keywords")
                     render_hits(kw_user)
                 if not kw_hits:
-                    st.info("No sensitive keywords detected in this document.")
+                    st.info("No sensitive signals detected in this document.")
 
-# =============================================================================
 # TAB 2 — ANALYSIS
-# =============================================================================
 with tab_analysis:
     if not st.session_state.scan_results:
         st.info("Upload and scan documents first.")
     else:
         st.header("Cross-Document Analysis")
 
-        # Summary table
         summary_rows = []
         for fname, res in st.session_state.scan_results.items():
             kw = res['keywords']
             rs, rl = get_risk_score(kw)
+            ai_analysis = st.session_state.llm_analyses.get(fname)
+            final_risk  = ai_analysis.get('risk_level', rl) if ai_analysis else rl
+
             top_kw = sorted(kw, key=lambda x: x['count'], reverse=True)
+            user_kw_hits = [k for k in kw if not k.get('is_pii') and not k.get('is_ner')]
+            kw_names = ', '.join([k['keyword'] for k in user_kw_hits[:5]]) or '—'
+
             summary_rows.append({
-                'Document': fname,
-                'Pages': res['page_count'],
-                'Words': res['word_count'],
-                'Signals Found': len(kw),
-                'Total Hits': sum(k['count'] for k in kw),
-                'Risk Level': rl,
-                'Risk Score': round(rs, 1),
-                'Top Signal': top_kw[0]['keyword'] if top_kw else '—',
-                'Extraction': res['method'],
+                'Document':        fname,
+                'Pages':           res['page_count'],
+                'Words':           res['word_count'],
+                'Signals Found':   len(kw),
+                'Total Hits':      sum(k['count'] for k in kw),
+                'Risk Level':      final_risk,
+                'Risk Score':      round(rs, 1),
+                'Keyword Matches': kw_names,
+                'Top Signal':      top_kw[0]['keyword'] if top_kw else '—',
+                'Extraction':      res['method'],
             })
         st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
-        # Heatmap (only if > 1 doc)
         if len(st.session_state.scan_results) > 1:
             st.subheader("Keyword Frequency Heatmap")
-            st.caption("Rows = documents · Columns = top keywords · Intensity = count")
+            st.caption("Rows = documents · Columns = top keywords · Intensity = occurrence count")
             formatted = {fn: res['keywords'] for fn, res in st.session_state.scan_results.items()}
             ft = get_keyword_frequency_table(formatted)
             if ft['keywords']:
@@ -425,22 +421,16 @@ with tab_analysis:
                     yaxis=dict(color='#c9d1d9'))
                 st.plotly_chart(fig_heat, use_container_width=True)
 
-        # Category donut
         st.subheader("Hits by Category")
         cat_totals = {}
         for res in st.session_state.scan_results.values():
             for kw in res['keywords']:
                 cat_totals[kw['category']] = cat_totals.get(kw['category'], 0) + kw['count']
         if cat_totals:
-            CAT_COLORS2 = {
-                'identity':'#f97171','financial':'#5acd5a','credential':'#c084fc',
-                'classification':'#60a5fa','personal':'#fbbf24','health':'#2dd4bf',
-                'technical':'#818cf8','general':'#9ca3af'
-            }
             fig_d = go.Figure(go.Pie(
                 labels=list(cat_totals.keys()), values=list(cat_totals.values()),
                 hole=0.55,
-                marker_colors=[CAT_COLORS2.get(c,'#9ca3af') for c in cat_totals.keys()],
+                marker_colors=[CAT_COLORS.get(c,'#9ca3af') for c in cat_totals.keys()],
                 textinfo='label+percent',
                 hovertemplate='%{label}: %{value} hits<extra></extra>'
             ))
@@ -449,9 +439,7 @@ with tab_analysis:
                 legend=dict(bgcolor='#161b22', bordercolor='#21262d'))
             st.plotly_chart(fig_d, use_container_width=True)
 
-# =============================================================================
 # TAB 3 — AI INSIGHTS
-# =============================================================================
 with tab_ai:
     st.header("🤖 AI Security Insights")
 
@@ -460,16 +448,16 @@ with tab_ai:
         st.markdown("""
 **To enable AI Insights:**
 1. Download Ollama from [ollama.com](https://ollama.com/download)
-2. Install and it will run automatically in your system tray
+2. Install it — Ollama will run automatically in your system tray
 3. Pull the model: `ollama pull llama3.2`
 4. Refresh this page — the sidebar will show **● Ollama online**
 
-> All analysis runs 100% on your local machine. No data is sent to the cloud.
+All analysis runs 100% locally. No document data is sent to the cloud.
         """)
     elif not st.session_state.scan_results:
-        st.info("Scan documents first (Tab 1), then enable 'Run AI Analysis' checkbox before scanning.")
+        st.info("Scan documents first (Tab 1).")
     elif not st.session_state.llm_analyses:
-        st.info("No AI analysis found. Re-scan with the **'Run AI Analysis'** checkbox enabled.")
+        st.info("Re-scan with the **Run AI Analysis** checkbox enabled to see AI insights here.")
     else:
         for fname, analysis in st.session_state.llm_analyses.items():
             with st.expander(f"🤖 {fname}", expanded=True):
@@ -478,7 +466,7 @@ with tab_ai:
                 rc1.subheader(fname)
                 rc2.markdown(
                     f'<div class="metric-card"><div class="risk-{risk}" style="font-size:1.5rem">'
-                    f'{risk}</div><div class="label">Risk Level</div></div>',
+                    f'{risk}</div><div class="label">AI Risk Level</div></div>',
                     unsafe_allow_html=True)
 
                 st.markdown(f"**Document type:** {analysis.get('document_type','Unknown')}")
