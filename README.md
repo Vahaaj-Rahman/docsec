@@ -4,6 +4,10 @@ Verifying documents before sharing for security risks.
 
 This is a complete, production-ready Streamlit application that performs advanced PDF text extraction, intelligent multi-word keyword scanning, TF-IDF topic analysis, and local AI security analysis using Ollama. All processing is 100% local, ensuring no sensitive data leaves your machine.
 
+## Prerequisites
+- **Python 3.9+** installed on your system.
+- Git (to clone the repository).
+
 ## Setup Instructions
 
 1. **Install dependencies**:
