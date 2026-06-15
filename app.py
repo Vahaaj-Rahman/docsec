@@ -371,12 +371,21 @@ with tab1:
                       unsafe_allow_html=True
                     )
                     
-                    for context in kw_result['contexts']:
+                    for context in kw_result['contexts'][:3]:
                         display = context.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
                         st.markdown(
                           f'<div class="context-snippet">{display}</div>',
                           unsafe_allow_html=True
                         )
+                        
+                    if len(kw_result['contexts']) > 3:
+                        with st.expander("Select to view all occurrences"):
+                            for context in kw_result['contexts'][3:]:
+                                display = context.replace('>>>', '<span class="hit">').replace('<<<', '</span>')
+                                st.markdown(
+                                  f'<div class="context-snippet">{display}</div>',
+                                  unsafe_allow_html=True
+                                )
                     st.markdown("---")
 
 # TAB 2: ANALYSIS
