@@ -41,13 +41,16 @@ def build_exact_pattern(keyword: str) -> re.Pattern:
 # ---------------------------------------------------------------------------
 
 PII_PATTERNS = {
-    'Email Address': (r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}\b', 'personal', 4.0),
-    'Phone Number':  (r'\b(?:\+?[\d]{1,3}[\s\-.])?(?:\(?\d{3}\)?[\s\-.])\d{3}[\s\-\.]\d{4}\b', 'personal', 3.5),
-    'Indian Aadhaar': (r'\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b', 'identity', 5.0),
+    'Public Email': (r'(?i)\b[A-Z0-9._%+-]+@(?:gmail|yahoo|hotmail|outlook|live|icloud|aol)\.[A-Z]{2,}\b', 'personal', 3.0),
+    'Corporate Email': (r'(?i)\b[A-Z0-9._%+-]+@(?!(?:gmail|yahoo|hotmail|outlook|live|icloud|aol)\.)[A-Z0-9.-]+\.[A-Z]{2,}\b', 'personal', 4.0),
+    'Phone (Keyword)':  (r'(?i)\b(?:ph|phone|mob|mobile|tel|contact|whatsapp)[\s\:\-\.]{0,5}(?:\+\d{1,3}[\s\-]?)?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}\b', 'personal', 3.5),
+    'Intl Phone (Code)': (r'\B\+[1-9]\d{0,2}[\s\-\.]?(?:\(\d{2,4}\)|\d{2,4})[\s\-\.]?\d{3,4}[\s\-\.]?\d{3,4}\b', 'personal', 3.5),
+    'Landline Phone': (r'\b0\d{2,4}[\s\-\.]?\d{6,8}\b', 'personal', 2.0),
+    'Indian Aadhaar': (r'(?i)\b(?:aadhaar|aadhar|uidai|uid)[\s\:\#]{0,5}[2-9]\d{3}[\s\-]?\d{4}[\s\-]?\d{4}\b', 'identity', 5.0),
     'Indian PAN':    (r'\b[A-Z]{5}[0-9]{4}[A-Z]\b', 'identity', 5.0),
-    'Credit / Debit Card': (r'\b(?:\d[ \-]?){13,16}\b', 'financial', 4.5),
-    'SSN / National ID': (r'\b\d{3}-\d{2}-\d{4}\b', 'identity', 4.5),
-    'Date of Birth': (r'\b(?:\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})\b', 'personal', 3.0),
+    'Credit / Debit Card': (r'(?i)\b(?:card|visa|mastercard|amex)[\s\:\#]{0,5}(?:\d[ \-]?){13,16}\b', 'financial', 4.5),
+    'SSN / National ID': (r'(?i)\b(?:ssn|social security)[\s\:\#]{0,5}\d{3}-\d{2}-\d{4}\b', 'identity', 4.5),
+    'Date of Birth': (r'(?i)\b(?:dob|date of birth|birth date|born)[\s\:\-]{0,5}\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\b', 'personal', 3.0),
     'IP Address':    (r'\b(?:\d{1,3}\.){3}\d{1,3}\b', 'technical', 2.5),
     'URL / Web Link': (r'https?://[^\s"\'<>]+', 'technical', 1.5),
 }
@@ -92,11 +95,11 @@ def scan_pii(text: str) -> list:
 
 NER_PATTERNS = {
     'Organisation Name': (
-        r'\b(?:Ltd|Limited|Pvt|Inc|Corp|LLC|LLP|Technologies|Solutions|Services|Systems|Enterprises|Consulting|Industries)\b',
+        r'\b(?:[A-Z][a-zA-Z0-9\&\'\-]*\s+){1,4}(?:Ltd|Limited|Pvt|Inc|Corp|LLC|LLP|Technologies|Solutions|Services|Systems|Enterprises|Consulting|Industries|Group)\b',
         'general', 1.0
     ),
     'Designation / Role': (
-        r'\b(?:CEO|CTO|CFO|Director|Manager|Engineer|Analyst|Consultant|Developer|Intern|President|VP|Head of)\b',
+        r'\b(?:CEO|CTO|CFO|Director|Manager|Engineer|Analyst|Consultant|Developer|Intern|President|Vice President|Head of [A-Z][a-z]+)\b',
         'general', 1.0
     ),
 }
@@ -109,7 +112,7 @@ def scan_ner(text: str) -> list:
     
     for label, (pat, cat, weight) in NER_PATTERNS.items():
         try:
-            matches = list(re.finditer(pat, text, re.IGNORECASE))
+            matches = list(re.finditer(pat, text))
         except Exception:
             continue
         if not matches:
